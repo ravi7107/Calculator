@@ -13,7 +13,7 @@ pipeline {
             steps {
                 script {
                     // Set your AWS credentials
-                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY', credentialsId: 'your_aws_credentials_id']]) {
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY', credentialsId: 'AKIA6KE3AQUXJ6K6ULUH']]) {
                         
                         // Set the S3 bucket name and region
                         def s3Bucket = "mys301082023"
