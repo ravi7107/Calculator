@@ -8,11 +8,26 @@ pipeline {
 				sh "mvn install"
 			}
 		}
-stage ("This stage will copy the package to the S3 bucket") {
-			steps {
-				sh "aws s3 cp /home/ubuntu/build_server/workspace/job_1/target/Calculator-1.0-SNAPSHOT.jar s3://mys301082023"
 
-				}
-			}	
-		}
+
+stage("Copy to S3") {
+            steps {
+                script {
+                    // Set your AWS credentials
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY', credentialsId: 'AKIA6KE3AQUXJ6K6ULUH']]) {
+                        
+                        // Set the S3 bucket name and region
+                        def s3Bucket = "mys301082023"
+                        def s3Region = "default"
+                        
+                        // Path to the JAR file you want to copy to S3
+                        def localFilePath = "/home/ubuntu/build_server/workspace/job_1/target/Calculator-1.0-SNAPSHOT.jar"
+                        
+                        // Use AWS CLI to copy the file to S3
+                        sh "aws s3 cp ${localFilePath} s3://${s3Bucket}/"
+                    }
+                }
+
 	}
+}
+
