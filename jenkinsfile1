@@ -4,7 +4,7 @@ pipeline {
         stage('Copy files from S3 to deployment agent') {
             steps {
                     // Copy files from S3 to the deployment agent
-                    sh "aws s3 cp s3://mys301082023 /home/ubuntu/deployment_server/apache-tomcat-10.1.11/webapps"
+                    sh "aws s3 cp s3://mys301082023 /home/ubuntu/deployment_server/apache-tomcat-10.1.11/webapps/"
                 
             }
         }
