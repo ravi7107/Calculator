@@ -3,6 +3,7 @@ pipeline {
     stages {
         stage('Copy files from S3 to deployment agent') {
             steps {
+                node("build_server"){
                 //create and delete new jar package
                 print("dalete the old maven package")
                 print("creating the new maven package")
@@ -15,4 +16,5 @@ pipeline {
             }
         }
     }
+}
 }
