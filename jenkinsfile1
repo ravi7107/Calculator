@@ -1,5 +1,5 @@
 pipeline {
-    agent {label 'deployment_server'}
+    agent any
     stages {
         stage('Copy files from S3 to deployment agent') {
             steps {
