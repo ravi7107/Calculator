@@ -1,13 +1,17 @@
 pipeline {
     agent {
         docker {
-            image 'maven:3.8.6-openjdk-11'  // Using official Maven image with JDK 11
-            args '-v $HOME/.m2:/root/.m2'   // Optional: Cache Maven dependencies
+            image 'maven:3.8.6-openjdk-11'
+            args '-v $HOME/.m2:/root/.m2'
         }
     }
     
     environment {
         REPO_URL = 'https://github.com/ravi7107/Java-Projects-Collections.git'
+        DEPLOY_USER = 'deployuser'                  // SSH user on deploy server
+        DEPLOY_HOST = 'your.deploy.server.ip'       // Deploy server IP or hostname
+        DEPLOY_PATH = '/opt/apps/myapp'              // Path on deploy server to copy JAR
+        SSH_CREDENTIALS_ID = 'deploy-server-ssh'    // Jenkins SSH credentials ID
     }
     
     stages {
@@ -15,19 +19,43 @@ pipeline {
             steps {
                 git branch: 'main',
                     url: "${REPO_URL}",
-                    credentialsId: ''  // Add your credentials ID if repo is private
+                    credentialsId: ''  // Add credentials if repo is private
             }
         }
         
         stage('Build') {
             steps {
-                sh 'mvn clean package'  // This will create artifacts in target/ directory
+                sh 'mvn clean package'
             }
         }
         
         stage('Archive Artifacts') {
             steps {
                 archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true
+            }
+        }
+        
+        stage('Deploy') {
+            steps {
+                script {
+                    def jarFile = sh(
+                        script: "ls target/*.jar | head -n 1",
+                        returnStdout: true
+                    ).trim()
+                    
+                    sshagent([SSH_CREDENTIALS_ID]) {
+                        // Copy JAR to deploy server
+                        sh "scp ${jarFile} ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/app.jar"
+                        
+                        // Run the app (stop old one, start new one)
+                        sh """
+                        ssh ${DEPLOY_USER}@${DEPLOY_HOST} '
+                            pkill -f "java -jar ${DEPLOY_PATH}/app.jar" || true
+                            nohup java -jar ${DEPLOY_PATH}/app.jar > ${DEPLOY_PATH}/app.log 2>&1 &
+                        '
+                        """
+                    }
+                }
             }
         }
     }
@@ -37,7 +65,7 @@ pipeline {
             echo 'Build completed - cleaning up workspace'
         }
         success {
-            echo 'Artifacts successfully built and archived!'
+            echo 'Artifacts successfully built, archived, and deployed!'
         }
         failure {
             echo 'Build failed - check logs for details'
