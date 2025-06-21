@@ -8,10 +8,14 @@ pipeline {
     
     environment {
         REPO_URL = 'https://github.com/ravi7107/Java-Projects-Collections.git'
-        DEPLOY_USER = 'deployuser'                  // SSH user on deploy server
-        DEPLOY_HOST = 'your.deploy.server.ip'       // Deploy server IP or hostname
-        DEPLOY_PATH = '/opt/apps/myapp'              // Path on deploy server to copy JAR
-        SSH_CREDENTIALS_ID = 'deploy-server-ssh'    // Jenkins SSH credentials ID
+        // Move sensitive config to Jenkins credentials or parameters
+        SSH_CREDENTIALS_ID = credentials('deploy-server-ssh') // Now required
+    }
+    
+    parameters {
+        string(name: 'DEPLOY_USER', defaultValue: 'deployuser', description: 'SSH user for deployment')
+        string(name: 'DEPLOY_HOST', defaultValue: 'your.deploy.server.ip', description: 'Target server hostname/IP')
+        string(name: 'DEPLOY_PATH', defaultValue: '/opt/apps/myapp', description: 'Deployment path on server')
     }
     
     stages {
@@ -35,24 +39,44 @@ pipeline {
             }
         }
         
+        stage('Verify Deployment Config') {
+            steps {
+                script {
+                    if (!params.DEPLOY_HOST || params.DEPLOY_HOST == 'your.deploy.server.ip') {
+                        error('Deployment host not configured! Please provide DEPLOY_HOST parameter')
+                    }
+                }
+            }
+        }
+        
         stage('Deploy') {
             steps {
                 script {
-                    def jarFile = sh(
-                        script: "ls target/*.jar | head -n 1",
-                        returnStdout: true
-                    ).trim()
+                    def jarFile = findFiles(glob: 'target/*.jar')[0].path
                     
                     sshagent([SSH_CREDENTIALS_ID]) {
-                        // Copy JAR to deploy server
-                        sh "scp ${jarFile} ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/app.jar"
-                        
-                        // Run the app (stop old one, start new one)
+                        // Verify SSH connection first
                         sh """
-                        ssh ${DEPLOY_USER}@${DEPLOY_HOST} '
-                            pkill -f "java -jar ${DEPLOY_PATH}/app.jar" || true
-                            nohup java -jar ${DEPLOY_PATH}/app.jar > ${DEPLOY_PATH}/app.log 2>&1 &
-                        '
+                            ssh -o StrictHostKeyChecking=no ${params.DEPLOY_USER}@${params.DEPLOY_HOST} \
+                            "mkdir -p ${params.DEPLOY_PATH} || true"
+                        """
+                        
+                        // Copy JAR with progress and verification
+                        sh """
+                            scp -o StrictHostKeyChecking=no -v ${jarFile} \
+                            ${params.DEPLOY_USER}@${params.DEPLOY_HOST}:${params.DEPLOY_PATH}/app.jar
+                        """
+                        
+                        // Restart application with proper error handling
+                        sh """
+                            ssh -o StrictHostKeyChecking=no ${params.DEPLOY_USER}@${params.DEPLOY_HOST} '
+                                echo "Stopping existing application..."
+                                pkill -f "java -jar ${params.DEPLOY_PATH}/app.jar" || echo "No existing process found"
+                                sleep 2
+                                echo "Starting new application..."
+                                nohup java -jar ${params.DEPLOY_PATH}/app.jar > ${params.DEPLOY_PATH}/app.log 2>&1 &
+                                echo "Deployment complete!"
+                            '
                         """
                     }
                 }
@@ -62,13 +86,15 @@ pipeline {
     
     post {
         always {
-            echo 'Build completed - cleaning up workspace'
+            echo 'Build pipeline completed - cleaning up workspace'
+            cleanWs()
         }
         success {
-            echo 'Artifacts successfully built, archived, and deployed!'
+            echo "Artifacts successfully built and deployed to ${params.DEPLOY_HOST}"
         }
         failure {
-            echo 'Build failed - check logs for details'
+            echo 'Build/deployment failed - check logs for details'
+            slackSend(color: 'danger', message: "Deployment failed: ${currentBuild.fullDisplayName}")
         }
     }
 }
