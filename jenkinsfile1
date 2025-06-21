@@ -1,66 +1,17 @@
 pipeline {
     agent any
 
-    environment {
-        DOCKER_HUB = credentials('docker-hub-credentials') // Store your Docker Hub credentials in Jenkins
-        GIT_REPO = 'https://github.com/ravi7107/Calculator.git'
-        IMAGE_NAME = 'apache-calculator'
-        DOCKERFILE_PATH = 'Dockerfile' // Path to your Dockerfile
-    }
-
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: env.GIT_REPO
+                git 'https://github.com/ravi7107/Calculator.git'
             }
         }
 
-        stage('Build Artifacts') {
+        stage('Build') {
             steps {
-                sh '''
-                    # Assuming it's a Java project with Maven
-                    mvn clean package
-                '''
-                archiveArtifacts artifacts: '**/target/*.war', fingerprint: true
+                sh 'mvn clean package'
             }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    // Create Dockerfile if it doesn't exist
-                    writeFile file: env.DOCKERFILE_PATH, text: '''
-                        FROM httpd:latest
-                        COPY ./target/*.war /usr/local/apache2/htdocs/
-                        EXPOSE 80
-                    '''
-                    
-                    docker.build("${env.IMAGE_NAME}:${env.BUILD_NUMBER}")
-                }
-            }
-        }
-
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    docker.withRegistry('https://registry.hub.docker.com', env.DOCKER_HUB) {
-                        docker.image("${env.IMAGE_NAME}:${env.BUILD_NUMBER}").push()
-                        docker.image("${env.IMAGE_NAME}:${env.BUILD_NUMBER}").push('latest')
-                    }
-                }
-            }
-        }
-    }
-
-    post {
-        always {
-            cleanWs()
-        }
-        success {
-            echo 'Docker image built and pushed successfully!'
-        }
-        failure {
-            echo 'Pipeline failed! Check the logs for details.'
         }
     }
 }
