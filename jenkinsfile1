@@ -1,100 +1,66 @@
 pipeline {
-    agent {
-        docker {
-            image 'maven:3.8.6-openjdk-11'
-            args '-v $HOME/.m2:/root/.m2'
-        }
-    }
-    
+    agent any
+
     environment {
-        REPO_URL = 'https://github.com/ravi7107/Java-Projects-Collections.git'
-        // Move sensitive config to Jenkins credentials or parameters
-        SSH_CREDENTIALS_ID = credentials('deploy-server-ssh') // Now required
+        DOCKER_HUB = credentials('docker-hub-credentials') // Store your Docker Hub credentials in Jenkins
+        GIT_REPO = 'https://github.com/ravi7107/Calculator.git'
+        IMAGE_NAME = 'apache-calculator'
+        DOCKERFILE_PATH = 'Dockerfile' // Path to your Dockerfile
     }
-    
-    parameters {
-        string(name: 'DEPLOY_USER', defaultValue: 'deployuser', description: 'SSH user for deployment')
-        string(name: 'DEPLOY_HOST', defaultValue: 'your.deploy.server.ip', description: 'Target server hostname/IP')
-        string(name: 'DEPLOY_PATH', defaultValue: '/opt/apps/myapp', description: 'Deployment path on server')
-    }
-    
+
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main',
-                    url: "${REPO_URL}",
-                    credentialsId: ''  // Add credentials if repo is private
+                git branch: 'main', url: env.GIT_REPO
             }
         }
-        
-        stage('Build') {
+
+        stage('Build Artifacts') {
             steps {
-                sh 'mvn clean package'
+                sh '''
+                    # Assuming it's a Java project with Maven
+                    mvn clean package
+                '''
+                archiveArtifacts artifacts: '**/target/*.war', fingerprint: true
             }
         }
-        
-        stage('Archive Artifacts') {
-            steps {
-                archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true
-            }
-        }
-        
-        stage('Verify Deployment Config') {
+
+        stage('Build Docker Image') {
             steps {
                 script {
-                    if (!params.DEPLOY_HOST || params.DEPLOY_HOST == 'your.deploy.server.ip') {
-                        error('Deployment host not configured! Please provide DEPLOY_HOST parameter')
-                    }
+                    // Create Dockerfile if it doesn't exist
+                    writeFile file: env.DOCKERFILE_PATH, text: '''
+                        FROM httpd:latest
+                        COPY ./target/*.war /usr/local/apache2/htdocs/
+                        EXPOSE 80
+                    '''
+                    
+                    docker.build("${env.IMAGE_NAME}:${env.BUILD_NUMBER}")
                 }
             }
         }
-        
-        stage('Deploy') {
+
+        stage('Push Docker Image') {
             steps {
                 script {
-                    def jarFile = findFiles(glob: 'target/*.jar')[0].path
-                    
-                    sshagent([SSH_CREDENTIALS_ID]) {
-                        // Verify SSH connection first
-                        sh """
-                            ssh -o StrictHostKeyChecking=no ${params.DEPLOY_USER}@${params.DEPLOY_HOST} \
-                            "mkdir -p ${params.DEPLOY_PATH} || true"
-                        """
-                        
-                        // Copy JAR with progress and verification
-                        sh """
-                            scp -o StrictHostKeyChecking=no -v ${jarFile} \
-                            ${params.DEPLOY_USER}@${params.DEPLOY_HOST}:${params.DEPLOY_PATH}/app.jar
-                        """
-                        
-                        // Restart application with proper error handling
-                        sh """
-                            ssh -o StrictHostKeyChecking=no ${params.DEPLOY_USER}@${params.DEPLOY_HOST} '
-                                echo "Stopping existing application..."
-                                pkill -f "java -jar ${params.DEPLOY_PATH}/app.jar" || echo "No existing process found"
-                                sleep 2
-                                echo "Starting new application..."
-                                nohup java -jar ${params.DEPLOY_PATH}/app.jar > ${params.DEPLOY_PATH}/app.log 2>&1 &
-                                echo "Deployment complete!"
-                            '
-                        """
+                    docker.withRegistry('https://registry.hub.docker.com', env.DOCKER_HUB) {
+                        docker.image("${env.IMAGE_NAME}:${env.BUILD_NUMBER}").push()
+                        docker.image("${env.IMAGE_NAME}:${env.BUILD_NUMBER}").push('latest')
                     }
                 }
             }
         }
     }
-    
+
     post {
         always {
-            echo 'Build pipeline completed - cleaning up workspace'
             cleanWs()
         }
         success {
-            echo "Artifacts successfully built and deployed to ${params.DEPLOY_HOST}"
+            echo 'Docker image built and pushed successfully!'
         }
         failure {
-            echo 'Build/deployment failed - check logs for details'
-            slackSend(color: 'danger', message: "Deployment failed: ${currentBuild.fullDisplayName}")
+            echo 'Pipeline failed! Check the logs for details.'
         }
     }
 }
