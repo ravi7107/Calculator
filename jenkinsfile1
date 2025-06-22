@@ -1,17 +1,57 @@
 pipeline {
     agent any
 
+    tools {
+        // Install these tools in Jenkins under "Manage Jenkins" > "Global Tool Configuration"
+        maven 'M3' // Name of your Maven installation in Jenkins
+        jdk 'jdk17' // Name of your JDK installation in Jenkins
+    }
+
     stages {
         stage('Checkout') {
             steps {
-                git 'https://github.com/ravi7107/Calculator.git'
+                git branch: 'master', 
+                url: 'https://github.com/ravi7107/Calculator.git'
             }
         }
 
         stage('Build') {
             steps {
+                sh 'mvn --version' // Verify Maven is available
                 sh 'mvn clean package'
+                archiveArtifacts artifacts: '**/target/*.war', fingerprint: true
             }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Create Dockerfile
+                    writeFile file: 'Dockerfile', text: '''
+                        FROM tomcat:9.0
+                        COPY target/*.war /usr/local/tomcat/webapps/
+                        EXPOSE 8080
+                    '''
+                    
+                    // Build and push Docker image (if credentials are set up)
+                    docker.withRegistry('', 'docker-hub-credentials') {
+                        def customImage = docker.build("my-apache-image:${env.BUILD_NUMBER}")
+                        customImage.push()
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed! Check the logs for details.'
         }
     }
 }
